@@ -1,0 +1,169 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ResQCommand | Emergency Response</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;font-family:Arial;background:#080f1e;color:#eaf2ff}
+header{padding:22px;background:#111d32;border-bottom:2px solid #ef4444}
+header h1{margin:0;color:#ff5353}
+header p{color:#9caecb}
+main{max-width:1200px;margin:auto;padding:20px}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:15px}
+.card{background:#111d32;border:1px solid #253650;border-radius:12px;padding:20px;margin-bottom:18px}
+.stat{font-size:28px;color:#ff5353;font-weight:bold}
+h2{color:#ff6565}
+input,select,textarea{width:100%;padding:12px;margin:8px 0;background:#081326;color:white;border:1px solid #334765;border-radius:7px}
+button{background:#ef4444;color:white;padding:12px 18px;border:0;border-radius:7px;cursor:pointer;font-weight:bold}
+button:hover{background:#dc2626}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+.incident{border-left:4px solid #ef4444;padding:12px;background:#0a1528;margin:12px 0;border-radius:6px}
+.badge{color:#ff7777;font-weight:bold}
+#map{height:300px;border-radius:10px}
+@media(max-width:700px){.grid{grid-template-columns:1fr}}
+</style>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+</head>
+<body>
+<header>
+<h1>🚨 ResQCommand</h1>
+<p>Emergency Response Command Center</p>
+</header>
+<main>
+<div class="stats">
+<div class="card">TOTAL INCIDENTS<div class="stat" id="total">0</div></div>
+<div class="card">CRITICAL<div class="stat" id="critical">0</div></div>
+<div class="card">RESPONDING<div class="stat" id="responding">0</div></div>
+<div class="card">RESOLVED<div class="stat" id="resolved">0</div></div>
+</div>
+<div class="grid">
+<section class="card">
+<h2>📍 Report Emergency</h2>
+<form id="form">
+<input id="name" placeholder="Reporter name" required>
+<input id="contact" placeholder="Contact number" required>
+<select id="type" required>
+<option value="">Select emergency type</option>
+<option>Medical</option><option>Fire</option>
+<option>Accident</option><option>Rescue</option>
+<option>Other</option>
+</select>
+<select id="severity">
+<option>Critical</option><option>High</option>
+<option>Medium</option><option>Low</option>
+</select>
+<input id="location" placeholder="Incident location" required>
+<textarea id="description" placeholder="Describe the incident" required></textarea>
+<button type="submit">SUBMIT INCIDENT</button>
+</form>
+<button onclick="getLocation()" style="margin-top:10px">📡 Use My Location</button>
+<p id="gps"></p>
+</section>
+<section class="card">
+<h2>🗺 Incident Map</h2>
+<div id="map"></div>
+<p>Incident locations appear on the map.</p>
+</section>
+</div>
+<section class="card">
+<h2>📋 Incident Dashboard</h2>
+<input id="search" placeholder="Search incidents..." oninput="render()">
+<div id="list"></div>
+</section>
+</main>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+let incidents=JSON.parse(localStorage.getItem("resq_incidents")||"[]");
+let gpsCoords=null;
+const map=L.map("map").setView([13.0827,80.2707],11);
+L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{
+attribution:"© OpenStreetMap"
+}).addTo(map);
+let markers=L.layerGroup().addTo(map);
+
+function getLocation(){
+if(!navigator.geolocation){alert("GPS unavailable");return}
+navigator.geolocation.getCurrentPosition(pos=>{
+gpsCoords=[pos.coords.latitude,pos.coords.longitude];
+document.getElementById("gps").textContent="GPS location captured!";
+document.getElementById("location").value=gpsCoords.join(", ");
+},()=>alert("Location permission denied"));
+}
+
+document.getElementById("form").addEventListener("submit",e=>{
+e.preventDefault();
+const incident={
+id:Date.now(),
+name:document.getElementById("name").value,
+contact:document.getElementById("contact").value,
+type:document.getElementById("type").value,
+severity:document.getElementById("severity").value,
+location:document.getElementById("location").value,
+description:document.getElementById("description").value,
+status:"Pending",
+coords:gpsCoords,
+time:new Date().toLocaleString()
+};
+incidents.unshift(incident);
+save();
+e.target.reset();
+gpsCoords=null;
+document.getElementById("gps").textContent="";
+alert("Incident submitted successfully!");
+});
+
+function save(){
+localStorage.setItem("resq_incidents",JSON.stringify(incidents));
+render();
+}
+
+function updateStatus(id,status){
+const item=incidents.find(x=>x.id===id);
+if(item){item.status=status;save();}
+}
+
+function deleteIncident(id){
+if(confirm("Delete this incident?")){
+incidents=incidents.filter(x=>x.id!==id);
+save();
+}
+}
+
+function render(){
+document.getElementById("total").textContent=incidents.length;
+document.getElementById("critical").textContent=
+incidents.filter(x=>x.severity==="Critical").length;
+document.getElementById("responding").textContent=
+incidents.filter(x=>x.status==="Responding").length;
+document.getElementById("resolved").textContent=
+incidents.filter(x=>x.status==="Resolved").length;
+const q=document.getElementById("search").value.toLowerCase();
+document.getElementById("list").innerHTML="";
+markers.clearLayers();
+incidents.filter(x=>(x.location+x.type+x.severity).toLowerCase().includes(q))
+.forEach(x=>{
+const div=document.createElement("div");
+div.className="incident";
+div.innerHTML=`<b>${x.type}</b> — <span class="badge">${x.severity}</span>
+<p>${x.location}</p><p>${x.description}</p>
+<p>Reporter: ${x.name} | ${x.time}</p>
+<p>Status: <b>${x.status}</b></p>
+<select onchange="updateStatus(${x.id},this.value)">
+<option ${x.status==="Pending"?"selected":""}>Pending</option>
+<option ${x.status==="Responding"?"selected":""}>Responding</option>
+<option ${x.status==="Resolved"?"selected":""}>Resolved</option>
+</select>
+<button onclick="deleteIncident(${x.id})">Delete</button>`;
+document.getElementById("list").appendChild(div);
+if(x.coords){
+L.marker(x.coords).addTo(markers).bindPopup(x.type+" - "+x.severity);
+}
+});
+}
+render();
+</script>
+</body>
+</html>
